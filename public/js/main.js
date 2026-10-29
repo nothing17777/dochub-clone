@@ -1,13 +1,12 @@
 import { h, clear, avatar, toast, modal } from './ui.js';
 import { get, post } from './api.js';
 import { state, refresh, connectCable, startGuest } from './store.js';
-import { signIn } from './views/auth.js';
 import { dashboard, newDocumentModal } from './views/dashboard.js';
 import { editor } from './views/editor.js';
 import { signView } from './views/sign.js';
 import { settings } from './views/settings.js';
 import { organization } from './views/org.js';
-import { pricing, landing } from './views/pricing.js';
+import { pricing } from './views/pricing.js';
 
 const app = document.getElementById('app');
 
@@ -27,9 +26,9 @@ async function boot() {
   const route = parseRoute();
   // The signer flow is public: never require a session for it.
   if (route.parts[0] === 'sign') return mount(route, { chrome: false });
-  try { await refresh(); } catch { /* unauthenticated */ }
-  // No account required: fall back to a guest session rather than a sign-in wall.
-  if (!state.user) { try { await startGuest(); } catch { /* offline */ } }
+  try { await refresh(); } catch { /* no session yet */ }
+  // No accounts at all: everyone gets a guest session on arrival.
+  if (!state.user) { try { await startGuest(); } catch { /* server unreachable */ } }
   if (state.user && !state.cable) connectCable(null, {});
   mount(route, { chrome: true });
 }
@@ -44,24 +43,26 @@ function mount(route, { chrome }) {
 function resolve(route) {
   const [head] = route.parts;
   if (head === 'sign') return signView(navigate, route);
-  if (head === 'd') return state.user ? editor(navigate, route) : signIn(navigate);
-  // A guest can still claim a real account.
-  if (head === 'login' || head === 'signup') return signIn(navigate);
+  // There is no account and no marketing page: every route is the app itself.
+  if (!state.user) return unreachable();
+  if (head === 'd') return editor(navigate, route);
   if (head === 'pricing') return pricing(navigate);
-  if (!state.user) {
-    if (head === 'login' || head === 'signup') return signIn(navigate);
-    return landing(navigate);
-  }
   if (head === 'settings') return settings(navigate, route);
   if (head === 'organization') return organization(navigate, route);
-  if (head === 'documents' || !head) return dashboard(navigate, route);
   return dashboard(navigate, route);
 }
 
+/** The guest session is the only way in, so failing to get one is fatal and
+ *  must say so rather than silently showing a signed-out page. */
+function unreachable() {
+  return h('div', { class: 'card pad', style: { margin: '48px auto', maxWidth: '420px', textAlign: 'center' } },
+    h('h2', {}, 'Cannot reach the server'),
+    h('p', { class: 'sub' }, 'The app could not start a session. Reload once the server is responding.'),
+    h('button', { class: 'btn primary', onclick: () => location.reload() }, 'Retry'));
+}
+
 function topbar(route) {
-  const links = state.user
-    ? [['#/documents', 'Documents'], ['#/pricing', 'Pricing']]
-    : [['#/pricing', 'Pricing']];
+  const links = [['#/documents', 'Documents'], ['#/pricing', 'Pricing']];
   const unread = state.notifications.filter((n) => !n.read).length;
   return h('header', { class: 'topbar' },
     h('a', { class: 'logo', href: '#/' }, h('span', { class: 'logo-mark' }, '📄'), 'DocHub'),
@@ -69,16 +70,12 @@ function topbar(route) {
       href, class: route.path.startsWith(href.slice(2)) && href !== '#/' ? 'on' : '',
     }, label))),
     h('div', { class: 'spacer' }),
-    state.user ? h('button', { class: 'btn ghost sm', onclick: () => newDocumentModal(navigate) }, '＋ New') : null,
-    state.user ? h('span', { class: `plan-chip ${['pro', 'site_license'].includes(state.user.plan) ? 'pro' : ''}` },
-      state.entitlements.label) : null,
-    state.user ? h('button', { class: 'btn ghost sm', title: 'Notifications', onclick: notifications },
-      unread ? `🔔 ${unread}` : '🔔') : null,
-    state.user
-      ? h('button', { class: 'btn ghost sm', onclick: menu, style: { padding: '2px' } }, avatar(state.user))
-      : h('div', { class: 'row' },
-          h('a', { class: 'btn ghost sm', href: '#/login' }, 'Sign in'),
-          h('a', { class: 'btn primary sm', href: '#/signup' }, 'Start free')));
+    h('button', { class: 'btn ghost sm', onclick: () => newDocumentModal(navigate) }, '＋ New'),
+    h('span', { class: `plan-chip ${['pro', 'site_license'].includes(state.user.plan) ? 'pro' : ''}` },
+      state.entitlements.label),
+    h('button', { class: 'btn ghost sm', title: 'Notifications', onclick: notifications },
+      unread ? `🔔 ${unread}` : '🔔'),
+    h('button', { class: 'btn ghost sm', onclick: menu, style: { padding: '2px' } }, avatar(state.user)));
 }
 
 function notifications() {
@@ -95,18 +92,11 @@ function notifications() {
 }
 
 function menu() {
-  modal({ title: state.user.is_guest ? 'Guest session' : state.user.email,
+  modal({ title: 'Your workspace',
     body: h('div', { class: 'row' },
-      state.user.is_guest
-        ? h('a', { class: 'btn primary', href: '#/signup', onclick: closeTop }, 'Save your work')
-        : null,
       h('a', { class: 'btn', href: '#/settings?s=profile', onclick: closeTop }, 'Settings'),
       h('a', { class: 'btn', href: '#/settings?s=usage', onclick: closeTop }, 'Usage'),
-      h('a', { class: 'btn', href: '#/organization', onclick: closeTop }, 'Organization'),
-      h('button', { class: 'btn danger', onclick: async () => {
-        await post('/api/v1/users/sign-out', {});
-        location.hash = '#/'; location.reload();
-      } }, 'Sign out')) });
+      h('a', { class: 'btn', href: '#/organization', onclick: closeTop }, 'Organization')) });
 }
 const closeTop = () => document.querySelector('.backdrop')?.remove();
 
