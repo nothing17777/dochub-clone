@@ -1,0 +1,19 @@
+{
+  "name": "dochub",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Reconstruction of DocHub: browser PDF editor, form builder and e-signature platform",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node --watch server/index.js",
+    "seed": "node server/seed.js"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.135.0",
+    "nodemailer": "^10.1.1"
+  }
+}
